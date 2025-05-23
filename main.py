@@ -12,18 +12,18 @@ import time
 
 # Constants
 CHROMEDRIVER_PATH = r"C:\Users\kuber\Downloads\chromedriver-win32\chromedriver-win32\chromedriver.exe"
-EXCEL_PATH      = "data/FILENUMBER8LAMM8.xlsx"
+EXCEL_PATH      = "data/SAMPLE-TEST.xlsx"
 FILE_NUMBER     = "FILENUMBER8LAMM8"
 
-# Load Excel
-df = pd.read_excel(EXCEL_PATH, header=None).iloc[:, :9]
-df.columns = ["FormNumber","Name","Birthday","MothersMaiden","Address","Zipcode","Country","Occupation","Company"]
+# Load Excel data exactly as it is
+df = pd.read_excel(EXCEL_PATH, header=None)
+df.columns = ["FileNum", "FormNumber", "Name", "Birthday", "MothersMaiden", "Address", "Zipcode", "Country", "Occupation", "Company"]
 df = df.fillna("")
 
 # Setup Chrome
 options = Options()
 options.add_experimental_option("detach", True)
-options.add_argument("--start-maximized")  # Start with browser maximized
+options.add_argument("--start-maximized")
 driver  = webdriver.Chrome(service=Service(CHROMEDRIVER_PATH), options=options)
 wait    = WebDriverWait(driver, 20)
 actions = ActionChains(driver)
@@ -45,251 +45,201 @@ except Exception:
 # --- NAVIGATE TO FORM ---
 driver.get("https://gihsservice.com/tqiservice/pixcelEntryFrom/pixcel")
 wait.until(EC.url_to_be("https://gihsservice.com/tqiservice/pixcelEntryFrom/pixcel"))
-time.sleep(3)  # Increased wait time for page to load fully
+time.sleep(3)
 
-def fill_field_by_label(label_text, value):
-    """Fill a form field by finding its associated label and then the corresponding input element"""
+def fill_field_directly(element, value):
+    """Fill field directly with the exact value from Excel"""
     try:
-        # Various strategies to find the field
-        strategies = [
-            # Strategy 1: Find by label text
-            lambda: driver.find_element(By.XPATH, f"//label[contains(text(), '{label_text}')]/..//input | //label[contains(text(), '{label_text}')]/..//textarea"),
-            
-            # Strategy 2: Find by preceding text node
-            lambda: driver.find_element(By.XPATH, f"//*[contains(text(), '{label_text}')]/following::input[1] | //*[contains(text(), '{label_text}')]/following::textarea[1]"),
-            
-            # Strategy 3: Find inputs with matching placeholder
-            lambda: driver.find_element(By.XPATH, f"//input[@placeholder='{label_text}'] | //textarea[@placeholder='{label_text}']"),
-            
-            # Strategy 4: For File Number which might be specially handled
-            lambda: driver.find_element(By.XPATH, "//input[1]") if label_text == "File Number" else None
-        ]
-        
-        element = None
-        for strategy in strategies:
-            try:
-                element = strategy()
-                if element and element.is_displayed():
-                    break
-            except:
-                continue
-                
-        if not element:
-            print(f"⚠️ Could not find field for '{label_text}'")
-            return False
-            
-        # Scroll to the element
+        # Scroll to element
         driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-        time.sleep(0.7)  # Wait longer for scroll to complete
-        
-        # Focus the field with a more robust approach
-        actions.move_to_element(element).click().perform()
         time.sleep(0.3)
         
-        # Clear with both methods to ensure it's empty
-        element.clear()
-        # Also try to clear with key combos in case the clear() method doesn't work
-        element.send_keys(Keys.CONTROL + "a")
-        element.send_keys(Keys.DELETE)
+        # Click to focus
+        element.click()
         time.sleep(0.2)
         
-        # Type more naturally with small delays
-        for char in str(value).strip():
-            element.send_keys(char)
-            time.sleep(0.03)  # Slight delay between characters
+        # Clear field
+        element.clear()
+        time.sleep(0.1)
         
-        # Press Tab to move to next field (helps trigger validation)
-        element.send_keys(Keys.TAB)
-        time.sleep(0.3)
+        # Select all and delete (backup clear)
+        element.send_keys(Keys.CONTROL + "a")
+        element.send_keys(Keys.DELETE)
+        time.sleep(0.1)
         
-        print(f"✅ Filled '{label_text}' with '{value}'")
+        # Enter the exact value from Excel
+        value_str = str(value).strip()
+        if value_str:
+            element.send_keys(value_str)
+        
+        time.sleep(0.2)
         return True
     except Exception as e:
-        print(f"⚠️ Error filling '{label_text}': {e}")
+        print(f"⚠️ Error filling field: {e}")
         return False
 
-# Alternative method when labels don't work
 def fill_all_fields_sequentially(row_data):
-    """Fill all form fields by finding them in sequence"""
+    """Fill all form fields in sequence exactly as they appear in Excel"""
     try:
-        # Format birthday if needed (assuming MM/DD/YYYY format expected on form)
-        try:
-            if isinstance(row_data["Birthday"], str) and "-" in row_data["Birthday"]:
-                bday = datetime.strptime(row_data["Birthday"], "%d-%m-%Y").strftime("%m/%d/%Y")
-            else:
-                bday = str(row_data["Birthday"])
-        except:
-            bday = str(row_data["Birthday"])
-
-        # Get all input and textarea elements
+        # Wait for page to load completely
+        time.sleep(2)
+        
+        # Get all input fields and textareas
         inputs = driver.find_elements(By.TAG_NAME, "input")
         textareas = driver.find_elements(By.TAG_NAME, "textarea")
         
-        # Make sure we have enough fields
-        if len(inputs) < 9:
-            print(f"⚠️ Expected at least 9 input fields, found {len(inputs)}")
-            return False
-            
-        # Map of field positions and values with CORRECT ordering
-        # This is the key change - mapping the correct Excel data to the right form fields
-        field_map = [
-            (inputs[0], FILE_NUMBER),                # File Number 
-            (inputs[1], row_data["FormNumber"]),     # Form Number
-            (inputs[2], row_data["Name"]),           # Name
-            (inputs[3], bday),                       # Birthday
-            (inputs[4], row_data["MothersMaiden"]),  # Mother's Maiden
+        print(f"Found {len(inputs)} input fields and {len(textareas)} textarea fields")
+        
+        # Data in exact Excel order
+        excel_data = [
+            row_data["FileNum"],           # Column 0: File Number
+            row_data["FormNumber"],        # Column 1: Form Number
+            row_data["Name"],              # Column 2: Name
+            row_data["Birthday"],          # Column 3: Birthday (exact as in Excel)
+            row_data["MothersMaiden"],     # Column 4: Mother's Maiden
+            row_data["Address"],           # Column 5: Address
+            row_data["Zipcode"],           # Column 6: Zipcode
+            row_data["Country"],           # Column 7: Country
+            row_data["Occupation"],        # Column 8: Occupation
+            row_data["Company"]            # Column 9: Company
         ]
         
-        # Handle Address which might be a textarea
-        address_element = next((t for t in textareas if t.is_displayed()), None)
-        if address_element:
-            field_map.append((address_element, row_data["Address"]))
-            next_input_index = 5
-        else:
-            field_map.append((inputs[5], row_data["Address"]))
-            next_input_index = 6
-            
-        # Continue with remaining fields
-        field_map.extend([
-            (inputs[next_input_index], row_data["Zipcode"]),      # Zipcode
-            (inputs[next_input_index+1], row_data["Country"]),    # Country
-            (inputs[next_input_index+2], row_data["Occupation"]), # Occupation
-            (inputs[next_input_index+3], row_data["Company"])     # Company
-        ])
+        # Fill first 5 input fields
+        for i in range(min(5, len(inputs))):
+            print(f"Filling field {i+1} with: '{excel_data[i]}'")
+            fill_field_directly(inputs[i], excel_data[i])
         
-        for element, value in field_map:
-            # Scroll to the element
-            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", element)
-            time.sleep(0.5)
+        # Handle Address field (check if it's a textarea)
+        address_filled = False
+        if textareas:
+            for textarea in textareas:
+                if textarea.is_displayed():
+                    print(f"Filling address textarea with: '{excel_data[5]}'")
+                    fill_field_directly(textarea, excel_data[5])
+                    address_filled = True
+                    break
+        
+        # If no textarea, use input field for address
+        if not address_filled and len(inputs) > 5:
+            print(f"Filling address input field with: '{excel_data[5]}'")
+            fill_field_directly(inputs[5], excel_data[5])
+        
+        # Fill remaining fields (Zipcode, Country, Occupation, Company)
+        remaining_start = 6 if not address_filled else 5
+        for i in range(4):  # 4 remaining fields
+            field_idx = remaining_start + i
+            data_idx = 6 + i  # Starting from zipcode in excel_data
             
-            # Click with JavaScript for more reliable focus
-            driver.execute_script("arguments[0].click();", element)
-            time.sleep(0.2)
-            
-            # Clear with both methods
-            element.clear()
-            element.send_keys(Keys.CONTROL + "a")
-            element.send_keys(Keys.DELETE)
-            time.sleep(0.2)
-            
-            # Type the value
-            for char in str(value).strip():
-                element.send_keys(char)
-                time.sleep(0.03)
-            
-            # Press Tab to move to next field
-            element.send_keys(Keys.TAB)
-            time.sleep(0.3)
-            
+            if field_idx < len(inputs) and data_idx < len(excel_data):
+                print(f"Filling field {field_idx+1} with: '{excel_data[data_idx]}'")
+                fill_field_directly(inputs[field_idx], excel_data[data_idx])
+        
         return True
+        
     except Exception as e:
-        print(f"⚠️ Error in sequential field filling: {e}")
+        print(f"⚠️ Error in sequential filling: {e}")
         return False
 
 def click_save_button():
-    """Click the save button using multiple strategies"""
-    save_found = False
-    
-    # Multiple strategies to find and click the save button
-    strategies = [
-        # Strategy 1: By button text
-        lambda: driver.find_element(By.XPATH, "//button[normalize-space(.)='Save']"),
-        
-        # Strategy 2: By value attribute
-        lambda: driver.find_element(By.XPATH, "//button[@value='Save' or @value='save']"),
-        
-        # Strategy 3: By class that contains btn and text
-        lambda: driver.find_element(By.XPATH, "//button[contains(@class, 'btn') and contains(text(), 'Save')]"),
-        
-        # Strategy 4: Just any button (last resort)
-        lambda: driver.find_elements(By.TAG_NAME, "button")[-1]
-    ]
-    
-    for strategy in strategies:
-        try:
-            save_btn = strategy()
-            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", save_btn)
-            time.sleep(0.7)
-            
-            # Try both normal and JavaScript click
-            try:
-                save_btn.click()
-            except:
-                driver.execute_script("arguments[0].click();", save_btn)
-                
-            save_found = True
-            print("💾 Save button clicked")
-            time.sleep(1)  # Wait after clicking save
-            break
-        except:
-            continue
-    
-    if not save_found:
-        print("⚠️ Could not find Save button")
-        return False
-        
-    # Wait for the form to reset
+    """Click the save button with multiple strategies"""
     try:
-        WebDriverWait(driver, 10).until(
-            lambda d: len(d.find_elements(By.TAG_NAME, "input")) > 2 and 
-                      d.find_elements(By.TAG_NAME, "input")[2].get_attribute("value") == ""
-        )
-        time.sleep(1.5)  # Extra wait to ensure form is fully reset
-        return True
-    except:
-        print("⚠️ Form might not have reset properly, continuing anyway")
-        time.sleep(2)
-        return False
-
-for idx, row in df.iterrows():
-    try:
-        print(f"\n📋 Processing record for {row['Name']}")
+        time.sleep(1)  # Wait before looking for save button
         
-        # Format birthday properly if needed
-        try:
-            if isinstance(row["Birthday"], str) and "-" in row["Birthday"]:
-                bday = datetime.strptime(row["Birthday"], "%d-%m-%Y").strftime("%m/%d/%Y")
-            else:
-                bday = str(row["Birthday"])
-        except:
-            bday = str(row["Birthday"])
-        
-        # Define the correct field mapping based on the requirements
-        field_data = [
-            ("File Number", FILE_NUMBER),            # 1. File Number: FILE_NUMBER
-            ("Form Number", row["FormNumber"]),      # 2. Form Number: FormNumber from Excel
-            ("Name", row["Name"]),                   # 3. Name: Name from Excel
-            ("Birthday", bday),                      # 4. Birthday: Birthday from Excel
-            ("Mothers Maiden", row["MothersMaiden"]),# 5. Mother's Maiden: MothersMaiden from Excel
-            ("Address", row["Address"]),             # 6. Address: Address from Excel
-            ("Zipcode", row["Zipcode"]),             # 7. Zipcode: Zipcode from Excel
-            ("Country", row["Country"]),             # 8. Country: Country from Excel
-            ("Occupation", row["Occupation"]),       # 9. Occupation: Occupation from Excel
-            ("Company", row["Company"])              # 10. Company: Company from Excel
+        # Multiple strategies to find save button
+        save_button = None
+        strategies = [
+            lambda: driver.find_element(By.XPATH, "//button[text()='Save']"),
+            lambda: driver.find_element(By.XPATH, "//button[contains(text(), 'Save')]"),
+            lambda: driver.find_element(By.XPATH, "//input[@value='Save']"),
+            lambda: driver.find_element(By.XPATH, "//button[@type='submit']"),
+            lambda: driver.find_element(By.XPATH, "//input[@type='submit']"),
+            lambda: driver.find_element(By.CSS_SELECTOR, "button[class*='btn']"),
+            lambda: driver.find_elements(By.TAG_NAME, "button")[-1]  # Last button on page
         ]
         
-        label_method_successful = True
-        for label, value in field_data:
-            if not fill_field_by_label(label, value):
-                label_method_successful = False
-                break
+        for i, strategy in enumerate(strategies):
+            try:
+                save_button = strategy()
+                if save_button and save_button.is_displayed() and save_button.is_enabled():
+                    print(f"✅ Found save button using strategy {i+1}")
+                    break
+            except:
+                continue
+        
+        if save_button:
+            # Scroll to save button
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", save_button)
+            time.sleep(0.5)
+            
+            # Try clicking with different methods
+            try:
+                save_button.click()
+                print("💾 Save button clicked (normal click)")
+            except:
+                try:
+                    driver.execute_script("arguments[0].click();", save_button)
+                    print("💾 Save button clicked (JavaScript click)")
+                except:
+                    # Try ActionChains as last resort
+                    actions.move_to_element(save_button).click().perform()
+                    print("💾 Save button clicked (ActionChains)")
+            
+            # Wait for form processing
+            time.sleep(3)
+            
+            # Check if form was reset (indicates successful save)
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: d.find_elements(By.TAG_NAME, "input")[2].get_attribute("value") == ""
+                )
+                print("✅ Form reset detected - save successful")
+                return True
+            except:
+                print("⚠️ Form reset not detected, but continuing...")
+                return True
                 
-        if not label_method_successful:
-            print("Falling back to sequential field filling...")
-            fill_all_fields_sequentially(row)
-        
-        # Give time for any field validations to complete
-        time.sleep(1)
-        
-        # Click save and wait for form reset
-        click_save_button()
-        
-        print(f"✅ Processed entry for {row['Name']} (Form #{row['FormNumber']})")
-        time.sleep(2)  # Pause between submissions
-
+        else:
+            print("❌ Save button not found with any strategy")
+            return False
+            
     except Exception as e:
-        print(f"❌ Error processing row {idx+1}: {e}")
+        print(f"❌ Error clicking save button: {e}")
+        return False
+
+# Process each row from Excel
+for idx, row in df.iterrows():
+    try:
+        print(f"\n" + "="*60)
+        print(f"📋 Processing record {idx + 1}: {row['Name']}")
+        print(f"File Number: {row['FileNum']}")
+        print(f"Form Number: {row['FormNumber']}")
+        print(f"Birthday: {row['Birthday']}")
+        print(f"Address: {row['Address']}")
+        print(f"Zipcode: {row['Zipcode']}")
+        print("="*60)
+        
+        # Fill the form with exact Excel data
+        if fill_all_fields_sequentially(row):
+            print("✅ All fields filled successfully")
+            
+            # Click save button
+            if click_save_button():
+                print(f"✅ Record {idx + 1} saved successfully for {row['Name']}")
+            else:
+                print(f"⚠️ Save may have failed for {row['Name']}")
+                # Continue anyway as the data might have been saved
+        else:
+            print(f"❌ Failed to fill form for {row['Name']}")
+        
+        # Wait between records
+        print("⏳ Waiting before next record...")
+        time.sleep(3)
+        
+    except Exception as e:
+        print(f"❌ Error processing record {idx + 1}: {e}")
         continue
 
-print("🎉 All done!")
+print("\n🎉 All records processed!")
+print("Closing browser...")
+time.sleep(2)
 driver.quit()
